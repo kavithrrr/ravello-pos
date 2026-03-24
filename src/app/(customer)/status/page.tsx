@@ -6,107 +6,135 @@ import { supabase } from '@/lib/supabase';
 function StatusContent() {
   const searchParams = useSearchParams();
   const tableNumber = searchParams.get('table') || '1';
+  const [allOrders, setAllOrders] = useState<any[]>([]);
   const [latestOrder, setLatestOrder] = useState<any>(null);
   const router = useRouter();
 
+  const fetchOrders = async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('table_number', parseInt(tableNumber))
+      .order('created_at', { ascending: false });
+    
+    if (data && data.length > 0) {
+      setLatestOrder(data[0]);
+      setAllOrders(data.filter(o => !o.is_service_call));
+    }
+  };
+
   useEffect(() => {
-    // 1. මුලින්ම පරණ ඩේටා ටික fetch කරගන්නවා
-    const fetchStatus = async () => {
-      const { data } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('table_number', parseInt(tableNumber))
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      if (data && data.length > 0) setLatestOrder(data[0]);
-    };
-
-    fetchStatus();
-
-    // 2. Real-time Channel එක හරියටම සෙට් කරනවා
-    // 'realtime:public:orders' කියන format එක පාවිච්චි කිරීම වඩාත් ආරක්ෂිතයි
-    const channel = supabase
-      .channel(`status-room-${tableNumber}`) 
+    fetchOrders();
+    const channel = supabase.channel(`live-updates-${tableNumber}`)
       .on('postgres_changes', { 
-        event: 'UPDATE', // Dashboard එකෙන් status එක update කරන නිසා
+        event: '*', 
         schema: 'public', 
-        table: 'orders',
+        table: 'orders', 
         filter: `table_number=eq.${tableNumber}` 
-      }, (payload) => {
-        console.log("Real-time Update Received:", payload.new);
-        setLatestOrder(payload.new);
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to Realtime!');
-        }
-      });
-
-    return () => { 
-      supabase.removeChannel(channel); 
-    };
+      }, () => fetchOrders())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [tableNumber]);
 
+  // 🧮 බිල ගණන් හදන හැටි
+  const subtotal = allOrders.reduce((acc, order) => acc + (order.price || 0), 0);
+  const serviceCharge = subtotal * 0.10;
+  const total = subtotal + serviceCharge;
+
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center font-sans">
+    <div className="min-h-screen bg-black text-white p-6 font-sans pb-20 selection:bg-red-600">
       {/* Top Branding */}
-      <div className="mb-10">
+      <div className="text-center mb-8 mt-4">
         <h1 className="text-xl font-black italic text-red-600 tracking-tighter uppercase">Order Tracking</h1>
-        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.3em] mt-1">Table {tableNumber}</p>
+        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.3em]">Table {tableNumber}</p>
       </div>
 
       {!latestOrder ? (
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">Searching for your order...</p>
+        <div className="text-center py-20 text-zinc-600 font-bold uppercase text-xs tracking-widest animate-pulse">
+          No active orders found.
         </div>
       ) : (
-        <div className="w-full max-w-sm">
-          {/* Status Icon with Animation */}
-          <div className="text-7xl mb-8 drop-shadow-[0_0_20px_rgba(220,38,38,0.3)]">
-            {latestOrder.status === 'pending' ? '⏳' : 
-             latestOrder.status === 'cooking' ? '👨‍🍳' : '✅'}
-          </div>
+        <div className="max-w-md mx-auto space-y-8">
           
-          <h2 className="text-4xl font-black uppercase italic mb-2 tracking-tighter leading-none">
-            {latestOrder.status === 'pending' ? 'RECEIVED' : 
-             latestOrder.status === 'cooking' ? 'COOKING' : 'READY!'}
-          </h2>
-          
-          <p className="text-zinc-500 text-[10px] mb-10 uppercase tracking-[0.2em] font-black">
-            {latestOrder.service_type}
-          </p>
-
-          {/* Dynamic Progress Bar */}
-          <div className="relative w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden mb-12">
-            <div 
-              className={`absolute h-full transition-all duration-1000 ease-out bg-red-600 shadow-[0_0_10px_#dc2626] ${
-                latestOrder.status === 'pending' ? 'w-1/3' : 
-                latestOrder.status === 'cooking' ? 'w-2/3' : 'w-full'
-              }`}
-            ></div>
+          {/* 🔥 Main Animated Status Card (The "Lassana" Part) */}
+          <div className="bg-zinc-900/40 border border-zinc-800 rounded-[2.5rem] p-10 text-center shadow-2xl relative overflow-hidden">
+            <div className="text-6xl mb-6 animate-bounce">
+              {latestOrder.status === 'pending' ? '⏳' : latestOrder.status === 'cooking' ? '👨‍🍳' : '✅'}
+            </div>
+            <h2 className="text-3xl font-black uppercase italic mb-2 tracking-tighter">
+              {latestOrder.status === 'pending' ? 'RECEIVED' : 
+               latestOrder.status === 'cooking' ? 'COOKING' : 'READY!'}
+            </h2>
+            <p className="text-[9px] text-zinc-500 font-black uppercase tracking-[0.2em] mb-6">
+                Your latest item is being processed
+            </p>
+            
+            {/* Animated Progress Bar */}
+            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div 
+                className={`h-full bg-red-600 transition-all duration-1000 ease-out ${
+                  latestOrder.status === 'pending' ? 'w-1/3' : 
+                  latestOrder.status === 'cooking' ? 'w-2/3' : 'w-full'
+                }`}
+              ></div>
+            </div>
           </div>
 
-          {/* Dynamic Message */}
-          <p className="text-zinc-400 text-xs mb-10 italic">
-             {latestOrder.status === 'pending' && "We've received your order. Hang tight!"}
-             {latestOrder.status === 'cooking' && "Our chef is working its magic..."}
-             {latestOrder.status === 'completed' && "Your order is ready to be served. Enjoy!"}
-          </p>
+          {/* 🧾 Bill Summary & Item List Section */}
+          <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-[2rem] p-6 shadow-inner relative">
+            <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Current Bill</h3>
+                <span className="bg-red-600/10 text-red-500 text-[9px] font-black px-3 py-1 rounded-full border border-red-600/20 uppercase">Live Update</span>
+            </div>
 
+            <div className="space-y-4 mb-8">
+              {allOrders.map((order, idx) => (
+                <div key={idx} className="flex justify-between items-start group">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-zinc-200 uppercase tracking-tight">
+                        {order.service_type.replace('ORDER: ', '')}
+                    </span>
+                    <span className={`text-[8px] font-black uppercase ${
+                      order.status === 'completed' ? 'text-green-500' : 'text-red-600'
+                    }`}>
+                      • {order.status}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400">Rs. {order.price?.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* 💰 Totals Table */}
+            <div className="space-y-2 border-t border-zinc-800 pt-6">
+              <div className="flex justify-between text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+                <span>Subtotal</span>
+                <span>Rs. {subtotal.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+                <span>Service Charge (10%)</span>
+                <span>Rs. {serviceCharge.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-white text-xl font-black uppercase mt-4 border-t border-zinc-800 pt-6 italic tracking-tighter">
+                <span className="text-red-600">Total Bill</span>
+                <span>Rs. {total.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Button */}
           <button 
             onClick={() => router.push(`/menu?table=${tableNumber}`)}
-            className="group flex items-center justify-center gap-2 w-full text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white transition-all"
+            className="w-full text-[10px] font-black uppercase tracking-[0.2em] py-5 bg-white text-black rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-xl active:scale-95"
           >
-            <span className="group-hover:-translate-x-1 transition-transform">←</span> Back to Menu
+            ← Add More To Order
           </button>
         </div>
       )}
       
-      {/* Bottom Footer */}
-      <div className="fixed bottom-10 opacity-20">
-         <p className="text-[8px] font-black tracking-[0.5em] uppercase">Powered by Ravello Studios</p>
+      {/* Footer Footer */}
+      <div className="text-center mt-20 opacity-20">
+         <p className="text-[8px] font-black tracking-[0.5em] uppercase italic text-red-600">Ravello Smart POS v2.0</p>
       </div>
     </div>
   );
@@ -114,7 +142,7 @@ function StatusContent() {
 
 export default function StatusPage() {
   return (
-    <Suspense fallback={<div className="bg-black min-h-screen text-white flex items-center justify-center font-black tracking-widest text-[10px] uppercase">Ravello System Initializing...</div>}>
+    <Suspense fallback={<div className="bg-black min-h-screen text-white flex items-center justify-center font-black uppercase tracking-widest text-[10px]">Syncing Ravello Cloud...</div>}>
       <StatusContent />
     </Suspense>
   );

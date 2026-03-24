@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation'; // 👈 useRouter එක මෙතනට ගත්තා
+import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 function MenuContent() {
   const searchParams = useSearchParams();
-  const router = useRouter(); // 👈 Router එක initialize කළා
+  const router = useRouter();
   const tableNumber = searchParams.get('table') || '1';
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,22 +29,22 @@ function MenuContent() {
     });
     if (!error) {
       alert(`🔔 ${type} request sent to the waiter!`);
-      // සර්විස් කෝල් එකක් දැම්මත් status බලන්න ඕනේ නම් මේක දාන්න පුළුවන්:
       router.push(`/status?table=${tableNumber}`);
     }
   };
 
-  // 🍔 කෑම බීම ඇනවුම් කිරීමට (Add to Order)
+  // 🍔 කෑම බීම ඇනවුම් කිරීමට (Add to Order) - UPDATED WITH PRICE
   const addToOrder = async (item: any) => {
     const { error } = await supabase.from('orders').insert({
       table_number: parseInt(tableNumber),
       is_service_call: false,
       service_type: `ORDER: ${item.name}`,
-      status: 'pending'
+      status: 'pending',
+      price: item.price // 👈 බිල හැදීමට මිල මෙතනින් යනවා
     });
 
     if (!error) {
-      // ✅ මෙන්න මෙතනදී තමයි auto redirect වෙන්නේ
+      // සාර්ථක නම් කෙලින්ම Status Page එකට
       router.push(`/status?table=${tableNumber}`);
     } else {
       alert("❌ Error sending order. Please try again.");
@@ -76,18 +76,18 @@ function MenuContent() {
             Loading Ravello Menu...
           </div>
         ) : items.map((item) => (
-          <div key={item.id} className="bg-zinc-900/40 rounded-[2.5rem] overflow-hidden border border-zinc-800 hover:border-red-600/40 transition-all duration-500 group">
+          <div key={item.id} className="bg-zinc-900/40 rounded-[2.5rem] overflow-hidden border border-zinc-800 hover:border-red-600/40 transition-all duration-500 group text-left">
             <div className="relative h-56 overflow-hidden">
               <img 
                 src={item.image_url} 
                 alt={item.name} 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 text-left" 
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
               />
               <div className="absolute top-5 right-5 bg-black/70 backdrop-blur-md px-4 py-1.5 rounded-2xl text-red-500 font-black border border-white/5 text-sm">
                 Rs.{item.price}
               </div>
             </div>
-            <div className="p-6 text-left">
+            <div className="p-6">
               <div className="flex justify-between items-start mb-2">
                 <h3 className="text-xl font-bold group-hover:text-red-500 transition-colors">{item.name}</h3>
               </div>
